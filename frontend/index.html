@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>股票分析</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>股票分析</h1>
+    <div class="search-bar">
+      <input id="symbolInput" type="text" placeholder="输入股票代码(如 600519)或名称" />
+      <button id="searchBtn">搜索</button>
+    </div>
+    <div id="searchResults" class="search-results"></div>
+  </header>
+
+  <main>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="info">公司信息</button>
+      <button class="tab-btn" data-tab="history">历史股价</button>
+      <button class="tab-btn" data-tab="finance">财务</button>
+      <button class="tab-btn" data-tab="industry">行业</button>
+      <button class="tab-btn" data-tab="orderbook">订单/行情</button>
+      <button class="tab-btn" data-tab="predict">股价预测</button>
+    </nav>
+
+    <section id="content" class="content">
+      <p class="placeholder">请先搜索并选择一只股票。</p>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

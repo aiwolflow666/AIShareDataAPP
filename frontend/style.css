@@ -1,0 +1,104 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #f5f6f8;
+  color: #222;
+  line-height: 1.5;
+}
+
+header {
+  background: #1a73e8;
+  color: #fff;
+  padding: 12px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+header h1 { font-size: 18px; margin-bottom: 8px; }
+
+.search-bar { display: flex; gap: 8px; }
+
+.search-bar input {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.search-bar button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  background: #fff;
+  color: #1a73e8;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.search-results {
+  margin-top: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.search-results .item {
+  padding: 6px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+  font-size: 13px;
+}
+
+.search-results .item:hover { background: rgba(255,255,255,0.15); }
+
+main { padding: 12px; max-width: 900px; margin: 0 auto; }
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tab-btn {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.tab-btn.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+
+.content {
+  background: #fff;
+  border-radius: 8px;
+  padding: 14px;
+  min-height: 200px;
+  overflow-x: auto;
+}
+
+.placeholder { color: #888; text-align: center; padding: 40px 0; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+th, td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: left; white-space: nowrap; }
+
+th { background: #f9f9f9; font-weight: 600; }
+
+.error { color: #d32f2f; padding: 12px; }
+
+.loading { color: #666; padding: 12px; }
+
+.predict-chart { display: flex; align-items: flex-end; gap: 2px; height: 160px; margin: 12px 0; }
+
+.predict-chart .bar { background: #1a73e8; min-width: 6px; border-radius: 2px 2px 0 0; }
+
+@media (max-width: 600px) {
+  header h1 { font-size: 16px; }
+  .tab-btn { font-size: 12px; padding: 5px 8px; }
+  th, td { font-size: 12px; padding: 4px 6px; }
+}
