@@ -40,6 +40,18 @@ body {
 
 .app-header h1 { font-size: 20px; margin-bottom: 12px; font-weight: 600; }
 
+.backend-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 10px;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.backend-badge.online { background: rgba(34,197,94,0.3); color: #bbf7d0; }
+.backend-badge.offline { background: rgba(239,68,68,0.3); color: #fecaca; }
+.backend-badge.checking { background: rgba(234,179,8,0.3); color: #fef08a; }
+
 .search-bar { display: flex; gap: 8px; }
 
 .search-bar input {

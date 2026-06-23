@@ -5,17 +5,42 @@ let tabCache = {};
 let isSelecting = false;
 let searchAbort = null;
 let currentTab = "info";
+let backendOnline = null;
 
 const $ = (sel) => document.querySelector(sel);
 
+async function checkBackend() {
+  try {
+    const res = await fetch(`${window.API_BASE}/health`, { signal: AbortSignal.timeout(8000) });
+    backendOnline = res.ok;
+  } catch {
+    backendOnline = false;
+  }
+  const badge = $("#backendStatus");
+  if (badge) {
+    badge.className = "backend-badge " + (backendOnline ? "online" : "offline");
+    badge.textContent = backendOnline ? "● 后端已连接" : "● 后端未连接";
+  }
+}
+
 async function fetchJSON(path, signal) {
   const url = `${window.API_BASE}${path}`;
-  const res = await fetch(url, { signal });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `请求失败 ${res.status}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  if (signal) signal.addEventListener("abort", () => controller.abort());
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `请求失败 ${res.status}`);
+    }
+    return await res.json();
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("请求超时,请检查后端服务是否在运行");
+    throw e;
+  } finally {
+    clearTimeout(timeout);
   }
-  return res.json();
 }
 
 function renderError(msg) {
@@ -388,3 +413,12 @@ $(".tabs").addEventListener("click", (e) => {
 window.addEventListener("resize", () => {
   chartInstances.forEach((c) => c && c.resize());
 });
+
+checkBackend();
+setInterval(checkBackend, 30000);
+
+checkBackend();
+setInterval(checkBackend, 30000);
+
+checkBackend();
+setInterval(checkBackend, 30000);
