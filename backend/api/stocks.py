@@ -177,6 +177,205 @@ def stock_finance(symbol: str):
     return result
 
 
+def _fetch_report(symbol, page, year):
+    try:
+        r = SESSION.get(
+            f"https://money.finance.sina.com.cn/corp/go.php/{page}/stockid/{symbol}/ctrl/{year}/displaytype/4.phtml",
+            timeout=15,
+        )
+        r.raise_for_status()
+        r.encoding = "gb2312"
+        return _parse_report_table(r.text, page)
+    except Exception:
+        return None
+
+
+def _get_row_value(report, item_name, col=None):
+    if not report:
+        return None
+    for row in report["rows"]:
+        if row.get("报表日期") == item_name:
+            if col:
+                v = row.get(col, "")
+            else:
+                vals = [v for k, v in row.items() if k != "报表日期" and v]
+                v = vals[0] if vals else ""
+            if not v or v == "--":
+                return None
+            try:
+                return float(v.replace(",", ""))
+            except (ValueError, AttributeError):
+                return None
+    return None
+
+
+@router.get("/stocks/{symbol}/finance_summary")
+def stock_finance_summary(symbol: str):
+    import numpy as np
+
+    pages = {
+        "资产负债表": "vFD_BalanceSheet",
+        "利润表": "vFD_ProfitStatement",
+        "现金流量表": "vFD_CashFlow",
+    }
+
+    reports = {}
+    for year in ["2024", "2023"]:
+        for name, page in pages.items():
+            key = f"{name}_{year}"
+            if key not in reports:
+                reports[key] = _fetch_report(symbol, page, year)
+
+    bs_24 = reports.get("资产负债表_2024")
+    pl_24 = reports.get("利润表_2024")
+    cf_24 = reports.get("现金流量表_2024")
+    pl_23 = reports.get("利润表_2023")
+    bs_23 = reports.get("资产负债表_2023")
+
+    if not pl_24:
+        raise HTTPException(status_code=404, detail="无法获取利润表数据")
+
+    cols_24 = pl_24["columns"] if pl_24 else []
+    latest_col = cols_24[1] if len(cols_24) > 1 else None
+    prev_col = cols_24[2] if len(cols_24) > 2 else latest_col
+
+    revenue = _get_row_value(pl_24, "一、营业总收入", latest_col) or _get_row_value(pl_24, "营业收入", latest_col)
+    revenue_prev = _get_row_value(pl_24, "一、营业总收入", prev_col) or _get_row_value(pl_24, "营业收入", prev_col)
+    revenue_23 = _get_row_value(pl_23, "一、营业总收入") or _get_row_value(pl_23, "营业收入")
+
+    net_profit = _get_row_value(pl_24, "五、净利润", latest_col)
+    net_profit_prev = _get_row_value(pl_24, "五、净利润", prev_col)
+    net_profit_23 = _get_row_value(pl_23, "五、净利润")
+
+    op_profit = _get_row_value(pl_24, "三、营业利润", latest_col)
+    total_profit = _get_row_value(pl_24, "四、利润总额", latest_col)
+    tax_expense = _get_row_value(pl_24, "减：所得税费用", latest_col)
+    sales_expense = _get_row_value(pl_24, "销售费用", latest_col)
+    mgmt_expense = _get_row_value(pl_24, "管理费用", latest_col)
+    rd_expense = _get_row_value(pl_24, "研发费用", latest_col)
+    eps = _get_row_value(pl_24, "基本每股收益(元/股)", latest_col)
+
+    total_assets = _get_row_value(bs_24, "资产总计", latest_col)
+    total_liab = _get_row_value(bs_24, "负债合计", latest_col)
+    equity = _get_row_value(bs_24, "归属于母公司股东权益合计", latest_col)
+    current_assets = _get_row_value(bs_24, "流动资产合计", latest_col)
+    current_liab = _get_row_value(bs_24, "流动负债合计", latest_col)
+    inventory = _get_row_value(bs_24, "存货", latest_col)
+    cash = _get_row_value(bs_24, "货币资金", latest_col)
+    accounts_receivable = _get_row_value(bs_24, "应收账款", latest_col)
+
+    op_cashflow = _get_row_value(cf_24, "经营活动产生现金流量净额", latest_col) or _get_row_value(cf_24, "五、经营活动产生现金流量净额", latest_col)
+    inv_cashflow = _get_row_value(cf_24, "投资活动产生的现金流量净额", latest_col)
+    fin_cashflow = _get_row_value(cf_24, "筹资活动产生的现金流量净额", latest_col)
+
+    def safe_div(a, b):
+        return round(a / b * 100, 2) if a is not None and b and b != 0 else None
+
+    def safe_ratio(a, b):
+        return round(a / b, 2) if a is not None and b and b != 0 else None
+
+    gross_cost = None
+    if revenue and (sales_expense or mgmt_expense):
+        total_cost = (sales_expense or 0) + (mgmt_expense or 0) + (rd_expense or 0)
+        gross_profit = revenue - total_cost
+    else:
+        gross_profit = None
+
+    revenue_yoy = safe_div(net_profit - (net_profit_23 or 0), net_profit_23) if net_profit and net_profit_23 else None
+    net_profit_yoy = safe_div(net_profit - (net_profit_23 or 0), net_profit_23) if net_profit and net_profit_23 else None
+
+    # 估算Beta:用历史K线波动率
+    beta = None
+    try:
+        r = SESSION.get(
+            "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData",
+            params={"symbol": _symbol_to_sina(symbol), "scale": "240", "ma": "no", "datalen": "250"},
+            timeout=15,
+        )
+        import json as _json
+        hist = _json.loads(r.text) if r.text else []
+        if len(hist) > 30:
+            closes = np.array([float(d["close"]) for d in hist])
+            returns = np.diff(np.log(closes))
+            stock_vol = float(np.std(returns) * np.sqrt(250))
+            market_avg_vol = 0.18
+            beta = round(stock_vol / market_avg_vol, 3)
+    except Exception:
+        pass
+
+    risk_signals = []
+    if op_cashflow is not None and op_cashflow < 0:
+        risk_signals.append({"signal": "经营现金流为负", "severity": "高", "detail": f"经营活动现金流量净额: {op_cashflow:,.0f}"})
+    if total_liab and total_assets and total_liab / total_assets > 0.7:
+        risk_signals.append({"signal": "资产负债率过高", "severity": "高", "detail": f"资产负债率: {safe_div(total_liab, total_assets)}%"})
+    if current_assets and current_liab and current_assets / current_liab < 1:
+        risk_signals.append({"signal": "流动比率低于1", "severity": "中", "detail": f"流动比率: {safe_ratio(current_assets, current_liab)}"})
+    if accounts_receivable and revenue and accounts_receivable / revenue > 0.3:
+        risk_signals.append({"signal": "应收账款占比过高", "severity": "中", "detail": f"应收账款/营收: {safe_div(accounts_receivable, revenue)}%"})
+    if gross_profit is not None and gross_profit < 0:
+        risk_signals.append({"signal": "毛利为负", "severity": "高", "detail": "营业成本超过营业收入"})
+    if not risk_signals:
+        risk_signals.append({"signal": "暂无明显风险信号", "severity": "低", "detail": "主要财务指标在正常范围内"})
+
+    # 盈利预测:基于近期趋势
+    forecast = None
+    if net_profit and net_profit_23:
+        growth_rate = (net_profit - net_profit_23) / net_profit_23
+        next_year_forecast = round(net_profit * (1 + growth_rate), 0)
+        forecast = {
+            "growth_rate": round(growth_rate * 100, 2),
+            "next_year_net_profit": next_year_forecast,
+            "method": f"基于2023-2024净利润增速({round(growth_rate*100,1)}%)线性推算",
+            "disclaimer": "仅为简单趋势外推,不构成投资建议",
+        }
+
+    rf = 2.5
+    rm = 9.0
+    capm = None
+    if beta:
+        expected_return = round(rf + beta * (rm - rf), 2)
+        capm = {
+            "rf": rf,
+            "rm": rm,
+            "beta": beta,
+            "expected_return": expected_return,
+            "explanation": f"预期收益率 = {rf}% + {beta} × ({rm}% - {rf}%) = {expected_return}%",
+            "note": "无风险利率取10年期国债约2.5%,市场预期收益率取A股长期平均约9%。Beta基于个股年化波动率估算,非严格回归Beta。",
+        }
+
+    return {
+        "revenue_profit_trend": {
+            "revenue": revenue, "revenue_prev": revenue_prev, "revenue_2023": revenue_23,
+            "net_profit": net_profit, "net_profit_prev": net_profit_prev, "net_profit_2023": net_profit_23,
+            "revenue_yoy": safe_div(revenue - revenue_23, revenue_23) if revenue and revenue_23 else None,
+            "net_profit_yoy": net_profit_yoy,
+            "eps": eps,
+        },
+        "profitability": {
+            "gross_margin": safe_div(gross_profit, revenue) if gross_profit and revenue else None,
+            "net_margin": safe_div(net_profit, revenue),
+            "roe": safe_div(net_profit, equity),
+            "roa": safe_div(net_profit, total_assets),
+            "operating_margin": safe_div(op_profit, revenue),
+        },
+        "balance_sheet": {
+            "total_assets": total_assets, "total_liabilities": total_liab,
+            "equity": equity, "current_assets": current_assets, "current_liabilities": current_liab,
+            "inventory": inventory, "cash": cash,
+            "debt_ratio": safe_div(total_liab, total_assets),
+        },
+        "solvency": {
+            "current_ratio": safe_ratio(current_assets, current_liab),
+            "quick_ratio": safe_ratio(current_assets - (inventory or 0), current_liab) if current_assets and current_liab else None,
+            "debt_to_equity": safe_ratio(total_liab, equity),
+            "cash_to_debt": safe_ratio(cash, total_liab),
+        },
+        "capm": capm,
+        "risk_signals": risk_signals,
+        "forecast": forecast,
+    }
+
+
 @router.get("/stocks/{symbol}/industry")
 def stock_industry(symbol: str):
     try:

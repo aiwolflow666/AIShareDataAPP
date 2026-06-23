@@ -164,10 +164,13 @@ const loaders = {
   },
 
   async finance(symbol) {
-    const data = await fetchJSON(`/stocks/${symbol}/finance`);
-    const reportNames = { "资产负债表": "balance", "利润表": "profit", "现金流量表": "cashflow" };
-    const tabs = Object.keys(data).filter(k => reportNames[k]);
-    if (!tabs.length) {
+    $("#content").innerHTML = renderLoading();
+    let reportData = null;
+    let summaryData = null;
+    try { reportData = await fetchJSON(`/stocks/${symbol}/finance`); } catch {}
+    try { summaryData = await fetchJSON(`/stocks/${symbol}/finance_summary`); } catch {}
+
+    if (!reportData && !summaryData) {
       const html = '<p class="empty">无数据</p>';
       $("#content").innerHTML = html;
       cacheTab("finance", symbol, html);
@@ -175,14 +178,114 @@ const loaders = {
     }
 
     let html = '<div class="finance-subtabs">';
-    tabs.forEach((name, i) => {
-      html += `<button class="finance-subtab ${i === 0 ? "active" : ""}" data-report="${name}">${name}</button>`;
+    if (summaryData) html += '<button class="finance-subtab active" data-view="summary">财务分析</button>';
+    const reportNames = ["资产负债表", "利润表", "现金流量表"];
+    reportNames.forEach((name) => {
+      if (reportData && reportData[name]) {
+        html += `<button class="finance-subtab ${!summaryData ? "active" : ""}" data-view="report" data-report="${name}">${name}</button>`;
+      }
     });
     html += '</div><div id="financeTable"></div>';
     $("#content").innerHTML = html;
 
+    function fmt(v, suffix = "", unit = "") {
+      if (v === null || v === undefined) return "--";
+      if (typeof v === "number") {
+        if (unit === "万") return (v / 10000).toLocaleString("zh-CN", { maximumFractionDigits: 2 }) + " 万";
+        if (unit === "亿") return (v / 100000000).toLocaleString("zh-CN", { maximumFractionDigits: 2 }) + " 亿";
+        return v.toLocaleString("zh-CN", { maximumFractionDigits: 2 }) + suffix;
+      }
+      return v + suffix;
+    }
+
+    function renderSummary() {
+      const s = summaryData;
+      let h = "";
+
+      if (s.revenue_profit_trend) {
+        const t = s.revenue_profit_trend;
+        h += `<h3 class="fin-section">营收与利润趋势</h3><div class="fin-cards">`;
+        h += `<div class="fin-card"><div class="label">2024营收</div><div class="value">${fmt(t.revenue, "", "万")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">2023营收</div><div class="value">${fmt(t.revenue_2023, "", "万")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">营收同比</div><div class="value ${t.revenue_yoy > 0 ? "green" : "red"}">${fmt(t.revenue_yoy, "%")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">2024净利润</div><div class="value">${fmt(t.net_profit, "", "万")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">2023净利润</div><div class="value">${fmt(t.net_profit_2023, "", "万")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">净利润同比</div><div class="value ${t.net_profit_yoy > 0 ? "green" : "red"}">${fmt(t.net_profit_yoy, "%")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">每股收益</div><div class="value">${fmt(t.eps)} 元</div></div>`;
+        h += `</div>`;
+      }
+
+      if (s.profitability) {
+        const p = s.profitability;
+        h += `<h3 class="fin-section">盈利能力指标</h3><div class="fin-cards">`;
+        h += `<div class="fin-card"><div class="label">毛利率</div><div class="value">${fmt(p.gross_margin, "%")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">净利率</div><div class="value">${fmt(p.net_margin, "%")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">ROE</div><div class="value">${fmt(p.roe, "%")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">ROA</div><div class="value">${fmt(p.roa, "%")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">营业利润率</div><div class="value">${fmt(p.operating_margin, "%")}</div></div>`;
+        h += `</div>`;
+      }
+
+      if (s.balance_sheet) {
+        const b = s.balance_sheet;
+        h += `<h3 class="fin-section">资产负债表概况</h3><div class="fin-cards">`;
+        h += `<div class="fin-card"><div class="label">总资产</div><div class="value">${fmt(b.total_assets, "", "亿")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">总负债</div><div class="value">${fmt(b.total_liabilities, "", "亿")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">股东权益</div><div class="value">${fmt(b.equity, "", "亿")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">流动资产</div><div class="value">${fmt(b.current_assets, "", "亿")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">流动负债</div><div class="value">${fmt(b.current_liab, "", "亿")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">货币资金</div><div class="value">${fmt(b.cash, "", "亿")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">存货</div><div class="value">${fmt(b.inventory, "", "亿")}</div></div>`;
+        h += `<div class="fin-card"><div class="label">资产负债率</div><div class="value">${fmt(b.debt_ratio, "%")}</div></div>`;
+        h += `</div>`;
+      }
+
+      if (s.solvency) {
+        const sol = s.solvency;
+        h += `<h3 class="fin-section">偿债能力</h3><div class="fin-cards">`;
+        h += `<div class="fin-card"><div class="label">流动比率</div><div class="value">${fmt(sol.current_ratio)}</div></div>`;
+        h += `<div class="fin-card"><div class="label">速动比率</div><div class="value">${fmt(sol.quick_ratio)}</div></div>`;
+        h += `<div class="fin-card"><div class="label">产权比率</div><div class="value">${fmt(sol.debt_to_equity)}</div></div>`;
+        h += `<div class="fin-card"><div class="label">现金/负债</div><div class="value">${fmt(sol.cash_to_debt)}</div></div>`;
+        h += `</div>`;
+      }
+
+      if (s.capm) {
+        const c = s.capm;
+        h += `<h3 class="fin-section">CAPM 模型</h3>`;
+        h += `<div class="fin-cards">
+          <div class="fin-card"><div class="label">无风险利率 (Rf)</div><div class="value">${c.rf}%</div></div>
+          <div class="fin-card"><div class="label">市场预期收益率 (Rm)</div><div class="value">${c.rm}%</div></div>
+          <div class="fin-card"><div class="label">Beta (β)</div><div class="value">${c.beta}</div></div>
+          <div class="fin-card highlight"><div class="label">预期收益率</div><div class="value">${c.expected_return}%</div></div>
+        </div>`;
+        h += `<p class="fin-note">${esc(c.explanation)}</p><p class="fin-note muted">${esc(c.note)}</p>`;
+      }
+
+      if (s.risk_signals) {
+        h += `<h3 class="fin-section">风险信号</h3>`;
+        h += `<table class="risk-table"><thead><tr><th>风险信号</th><th>严重程度</th><th>详情</th></tr></thead><tbody>`;
+        s.risk_signals.forEach(r => {
+          const sevClass = r.severity === "高" ? "sev-high" : r.severity === "中" ? "sev-mid" : "sev-low";
+          h += `<tr><td>${esc(r.signal)}</td><td class="${sevClass}">${r.severity}</td><td>${esc(r.detail)}</td></tr>`;
+        });
+        h += `</tbody></table>`;
+      }
+
+      if (s.forecast) {
+        const f = s.forecast;
+        h += `<h3 class="fin-section">盈利预测</h3><div class="fin-cards">`;
+        h += `<div class="fin-card"><div class="label">历史增速</div><div class="value">${f.growth_rate}%</div></div>`;
+        h += `<div class="fin-card highlight"><div class="label">预测净利润</div><div class="value">${fmt(f.next_year_net_profit, "", "万")}</div></div>`;
+        h += `</div>`;
+        h += `<p class="fin-note muted">${esc(f.method)}</p><p class="fin-note muted">${esc(f.disclaimer)}</p>`;
+      }
+
+      $("#financeTable").innerHTML = h;
+    }
+
     function renderReport(reportName) {
-      const report = data[reportName];
+      const report = reportData[reportName];
       if (!report) return;
       const cols = report.columns;
       const rows = report.rows;
@@ -199,13 +302,16 @@ const loaders = {
       $("#financeTable").innerHTML = tableHtml;
     }
 
-    renderReport(tabs[0]);
+    if (summaryData) renderSummary();
+    else if (reportData) renderReport(Object.keys(reportData)[0]);
+
     document.querySelector(".finance-subtabs").addEventListener("click", (e) => {
       const btn = e.target.closest(".finance-subtab");
       if (!btn) return;
       document.querySelectorAll(".finance-subtab").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
-      renderReport(btn.dataset.report);
+      if (btn.dataset.view === "summary") renderSummary();
+      else renderReport(btn.dataset.report);
     });
 
     cacheTab("finance", symbol, html, () => {
@@ -214,9 +320,11 @@ const loaders = {
         if (!btn) return;
         document.querySelectorAll(".finance-subtab").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
-        renderReport(btn.dataset.report);
+        if (btn.dataset.view === "summary") renderSummary();
+        else renderReport(btn.dataset.report);
       });
-      renderReport(tabs[0]);
+      if (summaryData) renderSummary();
+      else if (reportData) renderReport(Object.keys(reportData)[0]);
     });
   },
 
