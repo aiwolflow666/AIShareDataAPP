@@ -228,13 +228,16 @@ const loaders = {
   async analysis(symbol) {
     $("#content").innerHTML = `
       <div class="analysis-container">
-        <div class="analysis-status"><div class="loading"></div><span>正在收集数据并生成 AI 分析报告...</span></div>
+        <div id="analysisSteps" class="analysis-steps"></div>
+        <div id="analysisChart" class="chart-container" style="display:none;height:300px;"></div>
         <div id="analysisContent" class="analysis-content"></div>
       </div>`;
 
-    const statusEl = $(".analysis-status");
+    const stepsEl = $("#analysisSteps");
     const contentEl = $("#analysisContent");
+    const chartEl = $("#analysisChart");
     let fullText = "";
+    let analysisChart = null;
 
     try {
       const res = await fetch(`${window.API_BASE}/stocks/${symbol}/analysis`);
@@ -246,7 +249,7 @@ const loaders = {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let started = false;
+      let llmStarted = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -262,29 +265,61 @@ const loaders = {
           if (chunk.trim() === "[DONE]") continue;
           try {
             const obj = JSON.parse(chunk);
-            if (obj.meta) continue;
             if (obj.error) {
-              statusEl.style.display = "none";
+              stepsEl.innerHTML = "";
               contentEl.innerHTML = renderError(obj.error);
               return;
             }
-            if (obj.content) {
-              if (!started) {
-                started = true;
-                statusEl.style.display = "none";
+            if (obj.step === "collect") {
+              stepsEl.innerHTML += `<div class="step-item collecting"><span class="step-icon">⏳</span> ${obj.label}</div>`;
+              stepsEl.scrollTop = stepsEl.scrollHeight;
+            } else if (obj.step === "done") {
+              const items = stepsEl.querySelectorAll(".step-item");
+              const last = items[items.length - 1];
+              if (last) {
+                last.classList.remove("collecting");
+                last.classList.add("done");
+                last.querySelector(".step-icon").textContent = "✅";
+                last.innerHTML = `<span class="step-icon">✅</span> ${obj.label}`;
+              }
+              if (obj.chart && obj.chart.length > 0) {
+                chartEl.style.display = "block";
+                analysisChart = echarts.init(chartEl);
+                chartInstances.push(analysisChart);
+                analysisChart.setOption({
+                  tooltip: { trigger: "axis" },
+                  grid: { left: 50, right: 20, top: 20, bottom: 30 },
+                  xAxis: { type: "category", data: obj.chart.map(d => d.day), axisLabel: { fontSize: 10, rotate: 30 } },
+                  yAxis: { type: "value", scale: true },
+                  dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 4 }],
+                  series: [{
+                    name: "收盘价",
+                    type: "line",
+                    data: obj.chart.map(d => d.close),
+                    smooth: true,
+                    symbol: "none",
+                    lineStyle: { width: 2, color: "#2563eb" },
+                    areaStyle: { color: "rgba(37,99,235,0.1)" },
+                  }],
+                });
+              }
+            } else if (obj.content) {
+              if (!llmStarted) {
+                llmStarted = true;
+                stepsEl.innerHTML += `<div class="step-item collecting"><span class="step-icon">🤖</span> AI 正在生成报告...</div>`;
               }
               fullText += obj.content;
               contentEl.innerHTML = marked.parse(fullText) + '<span class="cursor"></span>';
-              contentEl.scrollTop = contentEl.scrollHeight;
             }
           } catch (e) {
             continue;
           }
         }
       }
+      const items = stepsEl.querySelectorAll(".step-item.collecting");
+      items.forEach(i => { i.classList.remove("collecting"); i.classList.add("done"); i.querySelector(".step-icon").textContent = "✅"; });
       contentEl.innerHTML = marked.parse(fullText);
     } catch (e) {
-      statusEl.style.display = "none";
       contentEl.innerHTML = renderError(e.message);
     }
   },

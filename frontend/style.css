@@ -285,6 +285,31 @@ tr:hover { background: #f9fafb; }
 
 .analysis-container { min-height: 300px; }
 
+.analysis-steps {
+  background: #f9fafb;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.analysis-steps .step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 14px;
+  color: var(--text-light);
+  transition: color 0.3s;
+}
+
+.analysis-steps .step-item.done { color: var(--success); }
+.analysis-steps .step-item.collecting { color: var(--primary); }
+.analysis-steps .step-item.collecting .step-icon { animation: pulse 1s ease infinite; }
+
+.step-icon { font-size: 16px; }
+
+@keyframes pulse { 50% { opacity: 0.4; } }
+
 .analysis-status {
   display: flex;
   align-items: center;

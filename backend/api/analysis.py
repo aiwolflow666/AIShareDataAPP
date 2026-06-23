@@ -205,32 +205,43 @@ def stock_analysis(symbol: str):
     if not LLM_API_KEY:
         raise HTTPException(status_code=500, detail="未配置 LLM_API_KEY，请在 .env 中填写")
 
-    try:
-        realtime = _collect_realtime(symbol)
-        name = realtime["名称"] if realtime else symbol
-    except Exception:
-        name = symbol
-        realtime = None
-
-    try:
-        history = _collect_history(symbol)
-    except Exception:
-        history = []
-
-    try:
-        finance = _collect_finance(symbol)
-    except Exception:
-        finance = []
-
-    try:
-        industry = _collect_industry(symbol)
-    except Exception:
-        industry = "未知"
-
-    prompt = _build_prompt(symbol, name, realtime, history, finance, industry)
-
     def generate():
-        yield f"data: {json.dumps({'meta': {'name': name, 'symbol': symbol, 'industry': industry}}, ensure_ascii=False)}\n\n"
+        import json as _json
+
+        yield f"data: {_json.dumps({'step': 'collect', 'label': '正在获取实时行情...'}, ensure_ascii=False)}\n\n"
+        try:
+            realtime = _collect_realtime(symbol)
+            name = realtime["名称"] if realtime else symbol
+        except Exception:
+            name = symbol
+            realtime = None
+        yield f"data: {_json.dumps({'step': 'done', 'label': f'实时行情: {name}', 'data': realtime}, ensure_ascii=False)}\n\n"
+
+        yield f"data: {_json.dumps({'step': 'collect', 'label': '正在获取历史K线(120日)...'}, ensure_ascii=False)}\n\n"
+        try:
+            history = _collect_history(symbol)
+        except Exception:
+            history = []
+        chart_data = [{"day": d["day"], "close": float(d["close"]), "volume": int(d.get("volume", 0))} for d in history[-60:]]
+        yield f"data: {_json.dumps({'step': 'done', 'label': f'历史K线: {len(history)}条', 'chart': chart_data}, ensure_ascii=False)}\n\n"
+
+        yield f"data: {_json.dumps({'step': 'collect', 'label': '正在获取财务数据...'}, ensure_ascii=False)}\n\n"
+        try:
+            finance = _collect_finance(symbol)
+        except Exception:
+            finance = []
+        yield f"data: {_json.dumps({'step': 'done', 'label': f'财务数据: {len(finance)}项'}, ensure_ascii=False)}\n\n"
+
+        yield f"data: {_json.dumps({'step': 'collect', 'label': '正在获取行业信息...'}, ensure_ascii=False)}\n\n"
+        try:
+            industry = _collect_industry(symbol)
+        except Exception:
+            industry = "未知"
+        yield f"data: {_json.dumps({'step': 'done', 'label': f'行业: {industry}'}, ensure_ascii=False)}\n\n"
+
+        yield f"data: {_json.dumps({'step': 'collect', 'label': '正在调用 AI 生成分析报告...'}, ensure_ascii=False)}\n\n"
+
+        prompt = _build_prompt(symbol, name, realtime, history, finance, industry)
         yield from _stream_llm(prompt)
 
     return StreamingResponse(generate(), media_type="text/event-stream")
