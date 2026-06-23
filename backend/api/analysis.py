@@ -1,9 +1,10 @@
 import os
 import json
 import re
+import uuid
+import threading
 import requests
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
 from .stocks import SESSION, _symbol_to_sina
 
 router = APIRouter()
@@ -26,8 +27,10 @@ def _load_env():
 
 ENV = _load_env()
 LLM_API_KEY = ENV.get("LLM_API_KEY", "")
-LLM_BASE_URL = ENV.get("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
+LLM_BASE_URL = ENV.get("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3")
 LLM_MODEL = ENV.get("LLM_MODEL", "deepseek-v4-pro")
+
+_tasks = {}
 
 
 def _collect_realtime(symbol):
@@ -99,7 +102,6 @@ def _build_prompt(symbol, name, realtime, history, finance, industry):
     ma60 = round(sum(closes[-60:]) / 60, 2) if len(closes) >= 60 else None
     high52 = max(closes) if closes else None
     low52 = min(closes) if closes else None
-    recent_30 = recent[-30:]
     change_30 = round((closes[-1] - closes[-30]) / closes[-30] * 100, 2) if len(closes) >= 30 else None
 
     history_text = "\n".join(
@@ -157,99 +159,97 @@ MA5: {ma5} | MA20: {ma20} | MA60: {ma60}
 """
 
 
-def _stream_llm(prompt):
-    headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": LLM_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": True,
-        "temperature": 0.7,
-        "max_tokens": 4096,
-    }
-    resp = requests.post(
-        f"{LLM_BASE_URL}/chat/completions",
-        headers=headers,
-        json=payload,
-        stream=True,
-        timeout=120,
-    )
-    if resp.status_code != 200:
-        err = resp.text[:500]
-        yield f"data: {json.dumps({'error': f'LLM调用失败({resp.status_code}): {err}'}, ensure_ascii=False)}\n\n"
-        return
-
-    for line in resp.iter_lines(decode_unicode=True):
-        if not line:
-            continue
-        if line.startswith("data: "):
-            chunk = line[6:]
-            if chunk.strip() == "[DONE]":
-                break
-            try:
-                obj = json.loads(chunk)
-                delta = obj.get("choices", [{}])[0].get("delta", {})
-                content = delta.get("content", "")
-                if content:
-                    yield f"data: {json.dumps({'content': content}, ensure_ascii=False)}\n\n"
-            except json.JSONDecodeError:
-                continue
-
-    yield "data: [DONE]\n\n"
-
-
-@router.get("/stocks/{symbol}/analysis")
-def stock_analysis(symbol: str):
-    if not LLM_API_KEY:
-        raise HTTPException(status_code=500, detail="未配置 LLM_API_KEY，请在 .env 中填写")
-
-    def generate():
-        import json as _json
-
-        yield f"data: {_json.dumps({'step': 'collect', 'label': '正在获取实时行情...'}, ensure_ascii=False)}\n\n"
+def _run_analysis(task_id, symbol):
+    task = _tasks[task_id]
+    try:
+        task["events"].append({"step": "collect", "label": "正在获取实时行情..."})
         try:
             realtime = _collect_realtime(symbol)
             name = realtime["名称"] if realtime else symbol
         except Exception:
             name = symbol
             realtime = None
-        yield f"data: {_json.dumps({'step': 'done', 'label': f'实时行情: {name}', 'data': realtime}, ensure_ascii=False)}\n\n"
+        task["events"].append({"step": "done", "label": f"实时行情: {name}", "data": realtime})
 
-        yield f"data: {_json.dumps({'step': 'collect', 'label': '正在获取历史K线(120日)...'}, ensure_ascii=False)}\n\n"
+        task["events"].append({"step": "collect", "label": "正在获取历史K线(120日)..."})
         try:
             history = _collect_history(symbol)
         except Exception:
             history = []
         chart_data = [{"day": d["day"], "close": float(d["close"]), "volume": int(d.get("volume", 0))} for d in history[-60:]]
-        yield f"data: {_json.dumps({'step': 'done', 'label': f'历史K线: {len(history)}条', 'chart': chart_data}, ensure_ascii=False)}\n\n"
+        task["events"].append({"step": "done", "label": f"历史K线: {len(history)}条", "chart": chart_data})
 
-        yield f"data: {_json.dumps({'step': 'collect', 'label': '正在获取财务数据...'}, ensure_ascii=False)}\n\n"
+        task["events"].append({"step": "collect", "label": "正在获取财务数据..."})
         try:
             finance = _collect_finance(symbol)
         except Exception:
             finance = []
-        yield f"data: {_json.dumps({'step': 'done', 'label': f'财务数据: {len(finance)}项'}, ensure_ascii=False)}\n\n"
+        task["events"].append({"step": "done", "label": f"财务数据: {len(finance)}项"})
 
-        yield f"data: {_json.dumps({'step': 'collect', 'label': '正在获取行业信息...'}, ensure_ascii=False)}\n\n"
+        task["events"].append({"step": "collect", "label": "正在获取行业信息..."})
         try:
             industry = _collect_industry(symbol)
         except Exception:
             industry = "未知"
-        yield f"data: {_json.dumps({'step': 'done', 'label': f'行业: {industry}'}, ensure_ascii=False)}\n\n"
+        task["events"].append({"step": "done", "label": f"行业: {industry}"})
 
-        yield f"data: {_json.dumps({'step': 'collect', 'label': '正在调用 AI 生成分析报告...'}, ensure_ascii=False)}\n\n"
+        task["events"].append({"step": "collect", "label": "正在调用 AI 生成分析报告..."})
 
         prompt = _build_prompt(symbol, name, realtime, history, finance, industry)
-        yield from _stream_llm(prompt)
 
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
+        headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
+        payload = {
+            "model": LLM_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": True,
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        }
+        resp = requests.post(f"{LLM_BASE_URL}/chat/completions", headers=headers, json=payload, stream=True, timeout=120)
+        if resp.status_code != 200:
+            task["events"].append({"error": f"LLM调用失败({resp.status_code}): {resp.text[:300]}"})
+            task["done"] = True
+            return
+
+        for line in resp.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            if line.startswith("data: "):
+                chunk = line[6:]
+                if chunk.strip() == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(chunk)
+                    delta = obj.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        task["events"].append({"content": content})
+                except json.JSONDecodeError:
+                    continue
+
+        task["events"].append({"done": True})
+        task["done"] = True
+    except Exception as e:
+        task["events"].append({"error": str(e)})
+        task["done"] = True
+
+
+@router.get("/stocks/{symbol}/analysis/start")
+def analysis_start(symbol: str):
+    if not LLM_API_KEY:
+        raise HTTPException(status_code=500, detail="未配置 LLM_API_KEY，请在 .env 中填写")
+    task_id = str(uuid.uuid4())[:8]
+    _tasks[task_id] = {"events": [], "done": False, "cursor": 0}
+    t = threading.Thread(target=_run_analysis, args=(task_id, symbol), daemon=True)
+    t.start()
+    return {"task_id": task_id}
+
+
+@router.get("/stocks/{symbol}/analysis/poll")
+def analysis_poll(symbol: str, task_id: str):
+    task = _tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    new_events = task["events"][task["cursor"]:]
+    task["cursor"] = len(task["events"])
+    return {"events": new_events, "done": task["done"]}

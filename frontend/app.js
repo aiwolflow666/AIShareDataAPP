@@ -237,88 +237,69 @@ const loaders = {
     const contentEl = $("#analysisContent");
     const chartEl = $("#analysisChart");
     let fullText = "";
-    let analysisChart = null;
 
     try {
-      const res = await fetch(`${window.API_BASE}/stocks/${symbol}/analysis`);
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `请求失败 ${res.status}`);
-      }
+      const startRes = await fetchJSON(`/stocks/${symbol}/analysis/start`);
+      const taskId = startRes.task_id;
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let llmStarted = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop();
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const chunk = line.slice(6);
-          if (chunk.trim() === "[DONE]") continue;
-          try {
-            const obj = JSON.parse(chunk);
-            if (obj.error) {
-              stepsEl.innerHTML = "";
-              contentEl.innerHTML = renderError(obj.error);
-              return;
+      const poll = async () => {
+        const res = await fetchJSON(`/stocks/${symbol}/analysis/poll?task_id=${taskId}`);
+        for (const ev of res.events) {
+          if (ev.error) {
+            stepsEl.innerHTML = "";
+            contentEl.innerHTML = renderError(ev.error);
+            return true;
+          }
+          if (ev.done) {
+            const items = stepsEl.querySelectorAll(".step-item.collecting");
+            items.forEach(i => { i.classList.remove("collecting"); i.classList.add("done"); i.querySelector(".step-icon").textContent = "✅"; });
+            contentEl.innerHTML = marked.parse(fullText);
+            return true;
+          }
+          if (ev.step === "collect") {
+            stepsEl.innerHTML += `<div class="step-item collecting"><span class="step-icon">⏳</span> ${esc(ev.label)}</div>`;
+          } else if (ev.step === "done") {
+            const items = stepsEl.querySelectorAll(".step-item.collecting");
+            const last = items[items.length - 1];
+            if (last) {
+              last.classList.remove("collecting");
+              last.classList.add("done");
+              last.innerHTML = `<span class="step-icon">✅</span> ${esc(ev.label)}`;
             }
-            if (obj.step === "collect") {
-              stepsEl.innerHTML += `<div class="step-item collecting"><span class="step-icon">⏳</span> ${obj.label}</div>`;
-              stepsEl.scrollTop = stepsEl.scrollHeight;
-            } else if (obj.step === "done") {
-              const items = stepsEl.querySelectorAll(".step-item");
-              const last = items[items.length - 1];
-              if (last) {
-                last.classList.remove("collecting");
-                last.classList.add("done");
-                last.querySelector(".step-icon").textContent = "✅";
-                last.innerHTML = `<span class="step-icon">✅</span> ${obj.label}`;
-              }
-              if (obj.chart && obj.chart.length > 0) {
-                chartEl.style.display = "block";
-                analysisChart = echarts.init(chartEl);
-                chartInstances.push(analysisChart);
-                analysisChart.setOption({
-                  tooltip: { trigger: "axis" },
-                  grid: { left: 50, right: 20, top: 20, bottom: 30 },
-                  xAxis: { type: "category", data: obj.chart.map(d => d.day), axisLabel: { fontSize: 10, rotate: 30 } },
-                  yAxis: { type: "value", scale: true },
-                  dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 4 }],
-                  series: [{
-                    name: "收盘价",
-                    type: "line",
-                    data: obj.chart.map(d => d.close),
-                    smooth: true,
-                    symbol: "none",
-                    lineStyle: { width: 2, color: "#2563eb" },
-                    areaStyle: { color: "rgba(37,99,235,0.1)" },
-                  }],
-                });
-              }
-            } else if (obj.content) {
-              if (!llmStarted) {
-                llmStarted = true;
-                stepsEl.innerHTML += `<div class="step-item collecting"><span class="step-icon">🤖</span> AI 正在生成报告...</div>`;
-              }
-              fullText += obj.content;
-              contentEl.innerHTML = marked.parse(fullText) + '<span class="cursor"></span>';
+            if (ev.chart && ev.chart.length > 0) {
+              chartEl.style.display = "block";
+              const chart = echarts.init(chartEl);
+              chartInstances.push(chart);
+              chart.setOption({
+                tooltip: { trigger: "axis" },
+                grid: { left: 50, right: 20, top: 20, bottom: 30 },
+                xAxis: { type: "category", data: ev.chart.map(d => d.day), axisLabel: { fontSize: 10, rotate: 30 } },
+                yAxis: { type: "value", scale: true },
+                dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 4 }],
+                series: [{
+                  name: "收盘价",
+                  type: "line",
+                  data: ev.chart.map(d => d.close),
+                  smooth: true,
+                  symbol: "none",
+                  lineStyle: { width: 2, color: "#2563eb" },
+                  areaStyle: { color: "rgba(37,99,235,0.1)" },
+                }],
+              });
             }
-          } catch (e) {
-            continue;
+          } else if (ev.content) {
+            fullText += ev.content;
+            contentEl.innerHTML = marked.parse(fullText) + '<span class="cursor"></span>';
           }
         }
+        return res.done;
+      };
+
+      while (true) {
+        const finished = await poll();
+        if (finished) break;
+        await new Promise(r => setTimeout(r, 500));
       }
-      const items = stepsEl.querySelectorAll(".step-item.collecting");
-      items.forEach(i => { i.classList.remove("collecting"); i.classList.add("done"); i.querySelector(".step-icon").textContent = "✅"; });
-      contentEl.innerHTML = marked.parse(fullText);
     } catch (e) {
       contentEl.innerHTML = renderError(e.message);
     }
