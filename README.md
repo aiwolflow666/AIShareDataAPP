@@ -2,6 +2,14 @@
 
 基于 [akshare](https://github.com/akfamily/akshare) 的股票分析应用,手机和 PC 均可通过 URL 访问。
 
+## 日常启动(最重要)
+
+```bash
+cd /mnt/c/Project/AIShareDataAPP && bash start.sh
+```
+
+一条命令完成:清理旧进程 → 启动后端 → 启动隧道 → 更新公网 URL → 推送 GitHub。等 1-2 分钟访问 https://aiwolflow666.github.io/AIShareDataAPP/
+
 ## 架构
 
 - **前端**:纯静态页(`frontend/`),部署到 GitHub Pages

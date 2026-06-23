@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## 日常启动(最重要)
+
+```bash
+cd /mnt/c/Project/AIShareDataAPP && bash start.sh
+```
+
+一条命令完成:清理旧进程 → 启动后端 → 启动隧道 → 更新公网 URL → 推送 GitHub。等 1-2 分钟访问 https://aiwolflow666.github.io/AIShareDataAPP/
+
 ## 项目概述
 
 基于 [akshare](https://github.com/akfamily/akshare) 的股票分析应用,手机和 PC 均可通过 URL 访问。
@@ -44,7 +52,11 @@ API 文档:http://127.0.0.1:8000/docs
 ## 部署
 
 - **前端**:推送 `main` 分支 → GitHub Actions 自动部署 `frontend/` 到 Pages。仓库 Settings → Pages → Source 需选 "GitHub Actions"。
-- **后端**:本地运行 + Cloudflare Tunnel 穿透。`cloudflared tunnel --url http://127.0.0.1:8000` 获取公网 URL,更新 `frontend/config.js` 的 `API_BASE` 并重新推送。快速模式 URL 每次重启会变;需固定域名用 `cloudflared tunnel login` 创建命名隧道。
+- **后端**:本地运行 + Cloudflare Tunnel 穿透。
+- **一键启动(日常使用)**:`bash start.sh` — 自动清理旧进程 → 启动后端 → 启动隧道(强制 HTTP/2)→ 抓取新公网 URL → 更新 `frontend/config.js` → 提交推送 GitHub。等 Actions 部署完(1-2 分钟)访问 https://aiwolflow666.github.io/AIShareDataAPP/ 即可。
+- **停止服务**:`kill <后端PID> <隧道PID>`(PID 见 start.sh 输出),或 `pkill -f "uvicorn backend"; pkill -f "cloudflared"`。
+- 快速模式 URL 每次重启都变,start.sh 已自动处理更新与推送;无需固定域名。
+- cloudflared 二进制在仓库根目录 `./cloudflared`(ARM64 Linux 版,已加入 .gitignore),勿提交。
 
 ## API 接口
 
