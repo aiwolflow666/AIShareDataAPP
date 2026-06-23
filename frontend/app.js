@@ -48,7 +48,7 @@ function tableFromRecords(records, maxRows = 50) {
 }
 
 async function loadTab(tab, symbol, force = false) {
-  if (!force && tabCache[tab] && tabCache[tab].symbol === symbol) {
+  if (tab !== "analysis" && !force && tabCache[tab] && tabCache[tab].symbol === symbol) {
     disposeCharts();
     $("#content").innerHTML = tabCache[tab].html;
     if (tabCache[tab].afterRender) tabCache[tab].afterRender();
@@ -223,6 +223,70 @@ const loaders = {
     };
     afterRender();
     cacheTab("predict", symbol, html, afterRender);
+  },
+
+  async analysis(symbol) {
+    $("#content").innerHTML = `
+      <div class="analysis-container">
+        <div class="analysis-status"><div class="loading"></div><span>正在收集数据并生成 AI 分析报告...</span></div>
+        <div id="analysisContent" class="analysis-content"></div>
+      </div>`;
+
+    const statusEl = $(".analysis-status");
+    const contentEl = $("#analysisContent");
+    let fullText = "";
+
+    try {
+      const res = await fetch(`${window.API_BASE}/stocks/${symbol}/analysis`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `请求失败 ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let started = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const chunk = line.slice(6);
+          if (chunk.trim() === "[DONE]") continue;
+          try {
+            const obj = JSON.parse(chunk);
+            if (obj.meta) continue;
+            if (obj.error) {
+              statusEl.style.display = "none";
+              contentEl.innerHTML = renderError(obj.error);
+              return;
+            }
+            if (obj.content) {
+              if (!started) {
+                started = true;
+                statusEl.style.display = "none";
+              }
+              fullText += obj.content;
+              contentEl.innerHTML = marked.parse(fullText) + '<span class="cursor"></span>';
+              contentEl.scrollTop = contentEl.scrollHeight;
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+      }
+      contentEl.innerHTML = marked.parse(fullText);
+    } catch (e) {
+      statusEl.style.display = "none";
+      contentEl.innerHTML = renderError(e.message);
+    }
   },
 };
 

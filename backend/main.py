@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import stocks
+from .api import stocks, analysis
 
 app = FastAPI(title="AIShareData API", version="0.1.0")
 
@@ -13,3 +13,4 @@ app.add_middleware(
 )
 
 app.include_router(stocks.router, prefix="/api", tags=["stocks"])
+app.include_router(analysis.router, prefix="/api", tags=["analysis"])
