@@ -120,31 +120,61 @@ def stock_history(
         raise HTTPException(status_code=500, detail=f"查询失败: {e}")
 
 
+def _parse_report_table(html, report_name):
+    tables = re.findall(r'<table[^>]*>(.*?)</table>', html, re.S)
+    for t in tables:
+        rows = re.findall(r'<tr[^>]*>(.*?)</tr>', t, re.S)
+        if len(rows) <= 5:
+            continue
+        header_cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', rows[1], re.S) if len(rows) > 1 else []
+        header_cells = [re.sub(r'<[^>]+>', '', c).strip() for c in header_cells]
+        if not header_cells or '报表日期' not in header_cells[0]:
+            continue
+
+        columns = header_cells
+        data_rows = []
+        for row in rows[2:]:
+            cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', row, re.S)
+            cells = [re.sub(r'<[^>]+>', '', c).strip().replace('&nbsp;', '') for c in cells]
+            if not cells or not cells[0]:
+                continue
+            row_data = {}
+            for j, col in enumerate(columns):
+                row_data[col] = cells[j] if j < len(cells) else ""
+            data_rows.append(row_data)
+
+        if data_rows:
+            return {"columns": columns, "rows": data_rows}
+    return None
+
+
 @router.get("/stocks/{symbol}/finance")
 def stock_finance(symbol: str):
-    try:
-        r = SESSION.get(
-            f"https://money.finance.sina.com.cn/corp/go.php/vFD_FinanceSummary/stockid/{symbol}.phtml",
-            timeout=15,
-        )
-        r.raise_for_status()
-        r.encoding = "gb2312"
-        text = r.text
+    import json as _json
 
-        tables = re.findall(r'<table[^>]*class="tbl_table[^"]*"[^>]*>(.*?)</table>', text, re.S)
-        result = []
-        for table in tables[:4]:
-            rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table, re.S)
-            for row in rows:
-                cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)
-                cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
-                if len(cells) >= 2 and cells[0]:
-                    result.append({"项目": cells[0], "数值": cells[1]})
-        if not result:
-            return [{"项目": "提示", "数值": "暂无财务数据或需访问完整页面"}]
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"查询失败: {e}")
+    reports = {
+        "资产负债表": "vFD_BalanceSheet",
+        "利润表": "vFD_ProfitStatement",
+        "现金流量表": "vFD_CashFlow",
+    }
+    result = {}
+    for name, page in reports.items():
+        try:
+            r = SESSION.get(
+                f"https://money.finance.sina.com.cn/corp/go.php/{page}/stockid/{symbol}/ctrl/2024/displaytype/4.phtml",
+                timeout=15,
+            )
+            r.raise_for_status()
+            r.encoding = "gb2312"
+            parsed = _parse_report_table(r.text, name)
+            if parsed:
+                result[name] = parsed
+        except Exception:
+            pass
+
+    if not result:
+        raise HTTPException(status_code=404, detail="暂无财务数据")
+    return result
 
 
 @router.get("/stocks/{symbol}/industry")

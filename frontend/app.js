@@ -165,9 +165,59 @@ const loaders = {
 
   async finance(symbol) {
     const data = await fetchJSON(`/stocks/${symbol}/finance`);
-    const html = `<h3 class="section-title">财务摘要</h3>${tableFromRecords(data, 100)}`;
+    const reportNames = { "资产负债表": "balance", "利润表": "profit", "现金流量表": "cashflow" };
+    const tabs = Object.keys(data).filter(k => reportNames[k]);
+    if (!tabs.length) {
+      const html = '<p class="empty">无数据</p>';
+      $("#content").innerHTML = html;
+      cacheTab("finance", symbol, html);
+      return;
+    }
+
+    let html = '<div class="finance-subtabs">';
+    tabs.forEach((name, i) => {
+      html += `<button class="finance-subtab ${i === 0 ? "active" : ""}" data-report="${name}">${name}</button>`;
+    });
+    html += '</div><div id="financeTable"></div>';
     $("#content").innerHTML = html;
-    cacheTab("finance", symbol, html);
+
+    function renderReport(reportName) {
+      const report = data[reportName];
+      if (!report) return;
+      const cols = report.columns;
+      const rows = report.rows;
+      let tableHtml = '<div class="table-scroll"><table><thead><tr>';
+      cols.forEach(c => { tableHtml += `<th>${esc(c)}</th>`; });
+      tableHtml += '</tr></thead><tbody>';
+      rows.forEach(r => {
+        const isSection = cols.slice(1).every(c => !r[c]);
+        tableHtml += `<tr class="${isSection ? "section-row" : ""}">`;
+        cols.forEach(c => { tableHtml += `<td>${esc(r[c] || "")}</td>`; });
+        tableHtml += '</tr>';
+      });
+      tableHtml += '</tbody></table></div>';
+      $("#financeTable").innerHTML = tableHtml;
+    }
+
+    renderReport(tabs[0]);
+    document.querySelector(".finance-subtabs").addEventListener("click", (e) => {
+      const btn = e.target.closest(".finance-subtab");
+      if (!btn) return;
+      document.querySelectorAll(".finance-subtab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      renderReport(btn.dataset.report);
+    });
+
+    cacheTab("finance", symbol, html, () => {
+      document.querySelector(".finance-subtabs")?.addEventListener("click", (e) => {
+        const btn = e.target.closest(".finance-subtab");
+        if (!btn) return;
+        document.querySelectorAll(".finance-subtab").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        renderReport(btn.dataset.report);
+      });
+      renderReport(tabs[0]);
+    });
   },
 
   async industry(symbol) {
