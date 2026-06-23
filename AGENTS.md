@@ -68,6 +68,14 @@ API 文档:http://127.0.0.1:8000/docs
 - `GET /api/stocks/{symbol}/industry` — 所属行业
 - `GET /api/stocks/{symbol}/orderbook` — 实时行情/订单簿
 - `GET /api/stocks/{symbol}/predict?days=` — 股价预测(均线+漂移简化模型,非投资建议)
+- `GET /api/stocks/{symbol}/analysis` — AI 深度分析(SSE 流式,调用火山引擎 LLM,需 `.env` 中配置 `LLM_API_KEY`)
+
+## AI 分析
+
+- 模型: 火山引擎 OpenAI 兼容 API(coding 端点),模型 `deepseek-v4-pro`
+- 配置: `.env` 文件(`LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL`),不入仓;模板见 `.env.example`
+- 流程: 后端收集实时行情+历史K线+财务+行业 → 组装 prompt → LLM 流式输出 → 前端 SSE 逐字渲染(markdown)
+- 注意: `LLM_BASE_URL` 用的是 coding 端点(`/api/coding/v3`),标准端点(`/api/v3`)需要 endpoint ID 而非模型名
 
 ## 待完善
 
