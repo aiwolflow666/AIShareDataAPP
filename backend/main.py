@@ -1,9 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .api import stocks, analysis
 
-app = FastAPI(title="AIShareData API", version="0.1.0")
+
+class UTF8JSONResponse(JSONResponse):
+    media_type = "application/json; charset=utf-8"
+
+
+app = FastAPI(title="AIShareData API", version="0.1.0", default_response_class=UTF8JSONResponse)
 
 app.add_middleware(
     CORSMiddleware,

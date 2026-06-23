@@ -5,6 +5,7 @@ import uuid
 import threading
 import requests
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from .stocks import SESSION, _symbol_to_sina
 
 router = APIRouter()
@@ -211,6 +212,7 @@ def _run_analysis(task_id, symbol):
             task["done"] = True
             return
 
+        resp.encoding = "utf-8"
         for line in resp.iter_lines(decode_unicode=True):
             if not line:
                 continue
@@ -242,7 +244,7 @@ def analysis_start(symbol: str):
     _tasks[task_id] = {"events": [], "done": False, "cursor": 0}
     t = threading.Thread(target=_run_analysis, args=(task_id, symbol), daemon=True)
     t.start()
-    return {"task_id": task_id}
+    return JSONResponse(content={"task_id": task_id}, media_type="application/json; charset=utf-8")
 
 
 @router.get("/stocks/{symbol}/analysis/poll")
@@ -252,4 +254,4 @@ def analysis_poll(symbol: str, task_id: str):
         raise HTTPException(status_code=404, detail="任务不存在")
     new_events = task["events"][task["cursor"]:]
     task["cursor"] = len(task["events"])
-    return {"events": new_events, "done": task["done"]}
+    return JSONResponse(content={"events": new_events, "done": task["done"]}, media_type="application/json; charset=utf-8")
