@@ -244,4 +244,12 @@ def stock_analysis(symbol: str):
         prompt = _build_prompt(symbol, name, realtime, history, finance, industry)
         yield from _stream_llm(prompt)
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
