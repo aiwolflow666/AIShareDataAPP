@@ -95,7 +95,7 @@ def _collect_industry(symbol):
     return m.group(1).strip() if m else "未知"
 
 
-def _build_prompt(symbol, name, realtime, history, finance, industry):
+def _build_prompt(symbol, name, realtime, history, finance_summary, industry):
     recent = history[-60:] if len(history) >= 60 else history
     closes = [float(d["close"]) for d in recent]
     ma5 = round(sum(closes[-5:]) / 5, 2) if len(closes) >= 5 else None
@@ -108,9 +108,34 @@ def _build_prompt(symbol, name, realtime, history, finance, industry):
     history_text = "\n".join(
         [f"  {d['day']} 开{d['open']} 高{d['high']} 低{d['low']} 收{d['close']} 量{d['volume']}" for d in recent[-20:]]
     )
-    finance_text = "\n".join([f"  {f}" for f in finance[:30]])
 
-    return f"""你是一位专业的证券分析师，请基于以下数据对股票进行深度分析。
+    fs_text = "暂无财务归纳数据"
+    if finance_summary:
+        parts = []
+        rpt = finance_summary.get("revenue_profit_trend", {})
+        if rpt:
+            parts.append(f"营收与利润趋势: 最新营收{rpt.get('revenue','?')}亿(同比{rpt.get('revenue_yoy','?')}%), 净利润{rpt.get('net_profit','?')}亿(同比{rpt.get('net_profit_yoy','?')}%), EPS {rpt.get('eps','?')}, 报告期{finance_summary.get('latest_period','?')}")
+        prof = finance_summary.get("profitability", {})
+        if prof:
+            parts.append(f"盈利能力: 毛利率{prof.get('gross_margin','?')}%, 净利率{prof.get('net_margin','?')}%, ROE {prof.get('roe','?')}%, ROA {prof.get('roa','?')}%, 营业利润率{prof.get('operating_margin','?')}%")
+        bs = finance_summary.get("balance_sheet", {})
+        if bs:
+            parts.append(f"资产负债: 总资产{bs.get('total_assets','?')}亿, 总负债{bs.get('total_liabilities','?')}亿, 股东权益{bs.get('equity','?')}亿, 资产负债率{bs.get('debt_ratio','?')}%")
+        sol = finance_summary.get("solvency", {})
+        if sol:
+            parts.append(f"偿债能力: 流动比率{sol.get('current_ratio','?')}, 速动比率{sol.get('quick_ratio','?')}, 产权比率{sol.get('debt_to_equity','?')}, 现金比率{sol.get('cash_ratio','?')}")
+        capm = finance_summary.get("capm")
+        if capm:
+            parts.append(f"CAPM模型: Rf={capm.get('rf')}%, Rm={capm.get('rm')}%, Beta={capm.get('beta')}, 预期收益率={capm.get('expected_return')}%")
+        risks = finance_summary.get("risk_signals", [])
+        if risks:
+            parts.append("风险信号: " + "; ".join([f"{r['signal']}({r['severity']})" for r in risks]))
+        fc = finance_summary.get("forecast")
+        if fc:
+            parts.append(f"盈利预测: 增速{fc.get('growth_rate')}%, 预测净利润{fc.get('next_year_net_profit','?')}, {fc.get('method','')}")
+        fs_text = "\n".join([f"  {p}" for p in parts])
+
+    return f"""你是一位专业的证券分析师，请基于以下最新数据对股票进行深度分析。
 
 股票代码: {symbol}
 股票名称: {name}
@@ -127,30 +152,36 @@ MA5: {ma5} | MA20: {ma20} | MA60: {ma60}
 == 最近20日K线数据 ==
 {history_text}
 
-== 财务摘要 ==
-{finance_text if finance_text else '  暂无财务数据'}
+== 财务归纳指标 (数据源: akshare, 报告期见上) ==
+{fs_text}
 
-请输出 Markdown 格式的深度分析报告，包含以下板块（每个板块都要有实质性内容，不要泛泛而谈）：
+请输出 Markdown 格式的深度分析报告，包含以下板块（每个板块都要有实质性内容，引用上面的具体数字，不要泛泛而谈）：
 
 ## 一、基本面概览
-用表格列出关键指标（当前价、市值估算、行业、均线位置等），并点评。
+用表格列出关键指标（当前价、行业、报告期、营收、净利润、EPS等），并点评。
 
-## 二、财务分析
-分析营收、利润趋势、毛利率、净利率、现金流等，指出亮点与隐患。
+## 二、营收与利润趋势
+分析营收和净利润的同比变化，判断成长性是加速还是放缓。
 
-## 三、技术面分析
+## 三、盈利能力分析
+分析毛利率、净利率、ROE、ROA，与行业平均水平对比，评估盈利质量。
+
+## 四、资产负债与偿债能力
+分析资产负债率、流动比率、速动比率，评估财务安全性和偿债风险。
+
+## 五、技术面分析
 分析当前价格相对均线位置、近60日区间、近期涨跌幅、量价配合，判断超买/超卖。
 
-## 四、估值与同行对比
-基于行业和财务数据，评估当前估值是否合理（PE/PB/PS 估算）。
+## 六、CAPM 模型与估值
+基于 CAPM 预期收益率评估当前估值是否合理，结合 PE/PB 推算（如有数据）。
 
-## 五、核心逻辑与风险
-列出看多逻辑（3-5条）和主要风险（3-5条），用表格呈现。
+## 七、风险信号
+列出已检测到的风险信号，并补充其他潜在风险，用表格呈现。
 
-## 六、走势判断
-分短期（1-3月）、中期（6-12月）、长期（1-3年）给出判断，标注关键支撑/阻力位。
+## 八、盈利预测与走势判断
+基于盈利预测数据，分短期（1-3月）、中期（6-12月）、长期（1-3年）给出判断，标注关键支撑/阻力位。
 
-## 七、投资建议
+## 九、投资建议
 给出明确建议（适合什么类型投资者、建议操作、关注指标）。
 
 要求：
@@ -180,12 +211,15 @@ def _run_analysis(task_id, symbol):
         chart_data = [{"day": d["day"], "close": float(d["close"]), "volume": int(d.get("volume", 0))} for d in history[-60:]]
         task["events"].append({"step": "done", "label": f"历史K线: {len(history)}条", "chart": chart_data})
 
-        task["events"].append({"step": "collect", "label": "正在获取财务数据..."})
+        task["events"].append({"step": "collect", "label": "正在获取财务归纳数据(akshare)..."})
         try:
-            finance = _collect_finance(symbol)
+            from .stocks import stock_finance_summary
+            finance_summary = stock_finance_summary(symbol)
+            label = f"财务归纳: 营收{finance_summary.get('revenue_profit_trend',{}).get('revenue','?')}亿 净利{finance_summary.get('revenue_profit_trend',{}).get('net_profit','?')}亿"
         except Exception:
-            finance = []
-        task["events"].append({"step": "done", "label": f"财务数据: {len(finance)}项"})
+            finance_summary = None
+            label = "财务归纳: 获取失败"
+        task["events"].append({"step": "done", "label": label})
 
         task["events"].append({"step": "collect", "label": "正在获取行业信息..."})
         try:
@@ -196,7 +230,7 @@ def _run_analysis(task_id, symbol):
 
         task["events"].append({"step": "collect", "label": "正在调用 AI 生成分析报告..."})
 
-        prompt = _build_prompt(symbol, name, realtime, history, finance, industry)
+        prompt = _build_prompt(symbol, name, realtime, history, finance_summary, industry)
 
         headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
         payload = {
