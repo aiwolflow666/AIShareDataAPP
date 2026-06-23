@@ -3,15 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>股票分析</title>
-  <link rel="stylesheet" href="style.css?v=4" />
-  <script src="echarts.min.js?v=4"></script>
-  <script src="marked.min.js?v=4"></script>
+  <title>股票 AI 分析</title>
+  <link rel="stylesheet" href="style.css?v=5" />
+  <script src="echarts.min.js?v=5"></script>
+  <script src="marked.min.js?v=5"></script>
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
-      <h1>📈 股票分析 <span id="backendStatus" class="backend-badge checking">● 检查中</span></h1>
+      <div class="header-top">
+        <h1>📈 股票 AI 分析 <span id="backendStatus" class="backend-badge checking">● 检查中</span></h1>
+      </div>
       <div class="search-bar">
         <input id="symbolInput" type="text" placeholder="输入股票代码(如 600519)或名称" autocomplete="off" />
         <button id="searchBtn">搜索</button>
@@ -21,29 +23,21 @@
   </header>
 
   <main class="app-main">
-    <div id="stockBar" class="stock-bar" style="display:none;">
-      <span id="currentStockName" class="stock-name"></span>
-    </div>
-
-    <nav class="tabs">
-      <button class="tab-btn active" data-tab="info">公司信息</button>
-      <button class="tab-btn" data-tab="history">历史股价</button>
-      <button class="tab-btn" data-tab="finance">财务</button>
-      <button class="tab-btn" data-tab="industry">所属行业</button>
-      <button class="tab-btn" data-tab="orderbook">订单/行情</button>
-      <button class="tab-btn" data-tab="predict">股价预测</button>
-      <button class="tab-btn analysis-tab" data-tab="analysis">🤖 AI 分析</button>
+    <nav class="main-nav">
+      <button class="nav-btn active" data-view="analysis">🤖 AI 分析</button>
+      <button class="nav-btn" data-view="history">📋 历史记录 <span id="historyCount" class="count-badge" style="display:none;">0</span></button>
     </nav>
 
     <section id="content" class="content">
       <div class="placeholder">
         <div class="placeholder-icon">🔍</div>
-        <p>请先搜索并选择一只股票</p>
+        <p>搜索一只股票开始 AI 深度分析</p>
+        <p class="muted">分析报告将自动保存到历史记录</p>
       </div>
     </section>
   </main>
 
-  <script src="config.js?v=4"></script>
-  <script src="app.js?v=4"></script>
+  <script src="config.js?v=5"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
