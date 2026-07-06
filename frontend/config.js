@@ -1,1 +1,1 @@
-window.API_BASE = "https://cult-dont-contests-placement.trycloudflare.com/api";
+window.API_BASE = "https://strips-wilson-criticism-bean.trycloudflare.com/api";
