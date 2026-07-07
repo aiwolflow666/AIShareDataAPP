@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>K线图 - 独立版</title>
+<script src="echarts.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#0f172a;color:#e2e8f0}
+.bar{background:#1e293b;padding:10px 16px;display:flex;gap:8px;align-items:center;position:sticky;top:0;z-index:10}
+.bar input{flex:1;padding:9px 12px;border:1px solid #334155;border-radius:8px;font-size:14px;background:#0f172a;color:#e2e8f0;outline:none}
+.bar input:focus{border-color:#3b82f6}
+.bar select{padding:9px 8px;border:1px solid #334155;border-radius:8px;font-size:13px;background:#0f172a;color:#e2e8f0}
+.bar button{padding:9px 16px;border:none;border-radius:8px;background:#3b82f6;color:#fff;font-weight:600;cursor:pointer}
+#results{position:absolute;top:52px;left:16px;right:16px;background:#1e293b;border-radius:8px;max-height:240px;overflow-y:auto;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+#results .item{padding:8px 14px;cursor:pointer;border-bottom:1px solid #334155;font-size:13px}
+#results .item:hover{background:#1e3a5f}
+#info{padding:8px 16px;font-size:13px;color:#94a3b8;display:none}
+#chart{width:100%;height:calc(100vh - 52px)}
+.tip{padding:6px 16px;font-size:12px;color:#64748b}
+</style>
+</head>
+<body>
+<div class="bar">
+  <input id="kw" placeholder="输入股票代码或名称,如 600519 / 茅台" autocomplete="off">
+  <select id="scale">
+    <option value="240">日线</option>
+    <option value="1200">周线</option>
+    <option value="7200">月线</option>
+    <option value="60">60分</option>
+    <option value="30">30分</option>
+    <option value="15">15分</option>
+    <option value="5">5分</option>
+  </select>
+  <button id="btn">搜索</button>
+</div>
+<div id="results" style="display:none"></div>
+<div id="info"></div>
+<div id="chart"></div>
+<div class="tip">数据来源:新浪财经 | 红涨绿跌 | 可缩放拖拽</div>
+<script>
+const $=s=>document.querySelector(s);
+let chart=echarts.init($('#chart'));
+window.addEventListener('resize',()=>chart.resize());
+
+function search(){
+  const kw=$('#kw').value.trim();
+  if(!kw)return;
+  $('#results').style.display='block';
+  $('#results').innerHTML='<div class="item">搜索中...</div>';
+  const old=document.getElementById('sjs');
+  if(old)old.remove();
+  window.suggestdata=undefined;
+  const s=document.createElement('script');
+  s.id='sjs';
+  s.src='https://suggest3.sinajs.cn/suggest/type=11,12,13,14,15&key='+encodeURIComponent(kw)+'&name=suggestdata';
+  s.onload=function(){
+    s.remove();
+    if(!window.suggestdata||!window.suggestdata.trim()){$('#results').innerHTML='<div class="item">无结果</div>';return;}
+    const items=window.suggestdata.split(';').filter(x=>x.trim());
+    if(!items.length){$('#results').innerHTML='<div class="item">无结果</div>';return;}
+    $('#results').innerHTML=items.map(function(item){
+      const p=item.split(',');
+      if(p.length<5)return'';
+      const name=p[4].trim()||p[0].trim();
+      const code=p[2].trim();
+      const pref=p[3].trim();
+      return '<div class="item" data-s="'+code+'" data-p="'+pref+'" data-n="'+name+'">'+code+' '+name+'</div>';
+    }).join('');
+  };
+  s.onerror=function(){s.remove();$('#results').innerHTML='<div class="item">搜索失败</div>';};
+  document.body.appendChild(s);
+}
+
+function loadKline(symbol,prefix,name){
+  $('#results').style.display='none';
+  $('#info').style.display='block';
+  $('#info').textContent=name+' ('+symbol+') 加载中...';
+  const scale=$('#scale').value;
+  const sinaCode=prefix||((symbol.startsWith('6')||symbol.startsWith('9')?'sh':'sz')+symbol);
+  const url='https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol='+sinaCode+'&scale='+scale+'&ma=no&datalen=500';
+  fetch(url).then(function(r){return r.text();}).then(function(text){
+    let data;
+    try{data=JSON.parse(text);}catch(e){$('#info').textContent='解析失败';return;}
+    if(!data||!data.length){$('#info').textContent='无K线数据';return;}
+    renderChart(data,name,symbol);
+  }).catch(function(){
+    $('#info').textContent='加载失败(CORS),请用HTTP服务打开: cd frontend && python3 -m http.server 8888';
+  });
+}
+
+function renderChart(data,name,symbol){
+  const closes=data.map(function(d){return parseFloat(d.close);});
+  function ma(n){return data.map(function(_,i){if(i<n-1)return null;var s=0;for(var j=i-n+1;j<=i;j++)s+=closes[j];return s/n;});}
+
+  $('#info').textContent=name+' ('+symbol+')  '+data.length+'根K线  最新:'+closes[closes.length-1]+'  '+data[0].day+' ~ '+data[data.length-1].day;
+
+  chart.setOption({
+    backgroundColor:'#0f172a',
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'},backgroundColor:'#1e293b',borderColor:'#334155',textStyle:{color:'#e2e8f0'}},
+    legend:{data:['K线','MA5','MA10','MA20','MA60','成交量'],top:5,textStyle:{color:'#94a3b8'}},
+    grid:[{left:60,right:30,top:40,height:'58%'},{left:60,right:30,top:'74%',height:'16%'}],
+    xAxis:[
+      {type:'category',data:data.map(function(d){return d.day;}),scale:true,boundaryGap:false,axisLine:{onZero:false,lineStyle:{color:'#334155'}},splitLine:{show:false},axisLabel:{fontSize:10,color:'#64748b'}},
+      {type:'category',gridIndex:1,data:data.map(function(d){return d.day;}),axisLabel:{show:false}}
+    ],
+    yAxis:[
+      {scale:true,splitArea:{show:true},axisLabel:{color:'#64748b'},splitLine:{lineStyle:{color:'#1e293b'}}},
+      {gridIndex:1,splitNumber:2,axisLabel:{color:'#64748b'},splitLine:{lineStyle:{color:'#1e293b'}}}
+    ],
+    dataZoom:[
+      {type:'inside',xAxisIndex:[0,1],start:60,end:100},
+      {type:'slider',xAxisIndex:[0,1],start:60,end:100,height:18,bottom:8,dataBackground:{areaStyle:{color:'#334155'}},textStyle:{color:'#64748b'}}
+    ],
+    series:[
+      {name:'K线',type:'candlestick',data:data.map(function(d){return[parseFloat(d.open),parseFloat(d.close),parseFloat(d.low),parseFloat(d.high)];}),itemStyle:{color:'#dc2626',color0:'#16a34a',borderColor:'#dc2626',borderColor0:'#16a34a'}},
+      {name:'MA5',type:'line',data:ma(5),smooth:true,symbol:'none',lineStyle:{width:1,color:'#f59e0b'}},
+      {name:'MA10',type:'line',data:ma(10),smooth:true,symbol:'none',lineStyle:{width:1,color:'#8b5cf6'}},
+      {name:'MA20',type:'line',data:ma(20),smooth:true,symbol:'none',lineStyle:{width:1,color:'#3b82f6'}},
+      {name:'MA60',type:'line',data:ma(60),smooth:true,symbol:'none',lineStyle:{width:1,color:'#6b7280'}},
+      {name:'成交量',type:'bar',xAxisIndex:1,yAxisIndex:1,data:data.map(function(d){return parseInt(d.volume)||0;}),itemStyle:{color:'#93c5fd'}}
+    ]
+  },true);
+}
+
+$('#btn').addEventListener('click',search);
+$('#kw').addEventListener('keydown',function(e){if(e.key==='Enter')search();});
+$('#results').addEventListener('click',function(e){
+  var item=e.target.closest('.item');
+  if(item&&item.dataset.s)loadKline(item.dataset.s,item.dataset.p,item.dataset.n);
+});
+$('#scale').addEventListener('change',function(){
+  if($('#info').style.display==='block'){
+    var m=$('#info').textContent.match(/^(.+?) \((\d+)\)/);
+    if(m)loadKline(m[2],'',m[1]);
+  }
+});
+document.addEventListener('click',function(e){
+  if(!e.target.closest('.bar')&&!e.target.closest('#results'))$('#results').style.display='none';
+});
+</script>
+</body>
+</html>
